@@ -1,4 +1,4 @@
-import puppeteer, { Page } from 'puppeteer';
+import puppeteer, { ElementHandle, Page } from 'puppeteer';
 import { username, password } from './secrets';
 
 const randomIntFromInterval = (min: number, max: number) => {
@@ -6,45 +6,58 @@ const randomIntFromInterval = (min: number, max: number) => {
   return Math.floor(Math.random() * (max - min) + min);
 };
 
-// @ts-expect-error
-let sleep_for = async (page: puppeteer.Page, min: number, max: number) => {
+const sleep_for = async (page: Page, min: number, max: number) => {
   let sleep_duration = randomIntFromInterval(min, max);
   console.log('waiting for ', sleep_duration / 1000, 'seconds');
   await page.waitForTimeout(sleep_duration); // simulate some quasi human behavior
 };
 
-// @ts-expect-error
-let navigateToPage = async (page: puppeteer.Page, URL: string) => {
+interface TweetData {
+  tweetName: string;
+  tweetText: string;
+}
+
+const navigateToPage = async (page: Page, URL: string) => {
   await page.goto(URL, { waitUntil: 'networkidle2' });
   await sleep_for(page, 1000, 2000);
-  const tweets = await page.$x(`//article[@data-testid="tweet"]`);
-  let lines: string[] = [];
-  if (tweets.length > 0) {
-    for (let i = 0; i < tweets.length; i++) {
-      let tweet = (await page.evaluate(
-        (el: { innerText: any }) => el.innerText,
-        tweets[i]
-      )) as string;
-      tweet = tweet.replace(/(\r\n|\n|\r)/gm, ' ');
-      console.log(tweet);
-      lines.push(tweet);
+  const tweets = (await page.$x(
+    `//article[@data-testid="tweet"]`
+  )) as ElementHandle<HTMLDivElement>[];
+  const lines: TweetData[] = [];
+  if (tweets) {
+    for (const tweet of tweets) {
+      const tweetName = await getText(
+        '//div[@data-testid="User-Name"]//span//span',
+        tweet,
+        page
+      );
+      const tweetText = await getText(
+        '//div[@data-testid="tweetText"]',
+        tweet,
+        page
+      );
+      const tweetObject = {
+        tweetName,
+        tweetText
+      };
+      console.log(tweetObject);
+      lines.push(tweetObject);
     }
   }
   return lines;
 };
 
-// @ts-expect-error
-let authenticate = async (page: puppeteer.Page) => {
+const authenticate = async (page: Page) => {
   try {
     const username_inputs = await page.$x(`//input[@name="text"]`);
     if (username_inputs.length > 0) {
       await username_inputs[0].focus();
       await page.keyboard.type(username);
     }
-    const nextButton = await page.$x(
+    const nextButton = (await page.$x(
       `//div[@role='button']//span[text()='Next']`
-    );
-    if (nextButton.length > 0) {
+    )) as ElementHandle[];
+    if (nextButton) {
       await nextButton[0].click();
     }
     await sleep_for(page, 500, 1000);
@@ -53,10 +66,10 @@ let authenticate = async (page: puppeteer.Page) => {
       await password_inputs[0].focus();
       await page.keyboard.type(password);
     }
-    const loginButton = await page.$x(
+    const loginButton = (await page.$x(
       `//div[@role='button']//span[text()='Log in']`
-    );
-    if (loginButton.length > 0) {
+    )) as ElementHandle[];
+    if (loginButton) {
       await loginButton[0].click();
     }
   } catch (e) {
@@ -64,10 +77,7 @@ let authenticate = async (page: puppeteer.Page) => {
   }
 };
 
-//article[data-testid="tweet"]
-//$x(`//article[@data-testid="tweet"]`)
-
-let main_actual = async () => {
+const main_actual = async () => {
   try {
     const browser = await puppeteer.launch({ headless: false });
     const page = await browser.newPage();
@@ -83,14 +93,29 @@ let main_actual = async () => {
     await authenticate(page);
     await sleep_for(page, 500, 1000);
     let lines = await navigateToPage(page, 'https://twitter.com/home');
-    console.table(lines);
+    // console.table(lines);
   } catch (e) {
     console.log(e);
   }
 };
 
-let main = async () => {
+const main = async () => {
   await main_actual();
+};
+
+const getText = async (
+  xpath: string,
+  elementHandle: ElementHandle<HTMLElement>,
+  page: Page
+) => {
+  const [textHandle] = (await elementHandle.$x(
+    xpath
+  )) as ElementHandle<HTMLElement>[];
+  let formattedText = (await page.evaluate(
+    (el) => el.innerText,
+    textHandle
+  )) as string;
+  return formattedText.replace(/(\r\n|\n|\r)/gm, ' ');
 };
 
 main();
